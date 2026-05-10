@@ -1,0 +1,55 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Trip {
+  id            String         @id @default(uuid())
+  name          String
+  description   String?
+  startDate     String
+  endDate       String
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  participants  Participant[]
+  availabilities Availability[]
+  comments      Comment[]
+}
+
+model Participant {
+  id             String         @id @default(uuid())
+  name           String
+  tripId         String
+  trip           Trip           @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  availabilities Availability[]
+
+  @@unique([tripId, name])
+}
+
+model Availability {
+  id            String      @id @default(uuid())
+  participantId String
+  participant   Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  tripId        String
+  trip          Trip        @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  date          String      // YYYY-MM-DD
+  slots         Int[]       // 0=00:00, 1=01:00, ..., 23=23:00
+
+  @@unique([participantId, date])
+}
+
+model Comment {
+  id        String    @id @default(uuid())
+  tripId    String
+  trip      Trip      @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  author    String
+  content   String
+  parentId  String?
+  parent    Comment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  replies   Comment[] @relation("CommentReplies")
+  createdAt DateTime  @default(now())
+}
