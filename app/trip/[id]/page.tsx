@@ -234,7 +234,7 @@ export default function TripPage() {
   return (
     <main className="min-h-screen pb-20">
       {/* Header */}
-      <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-10">
+      <header className="border-b border-border bg-card/95 backdrop-blur-sm sticky top-0 z-30">
         <div className="max-w-6xl mx-auto px-6 py-4">
           <Button
             variant="ghost"
