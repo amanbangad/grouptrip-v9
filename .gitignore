@@ -15,3 +15,13 @@ node_modules
 .DS_Store
 tsconfig.tsbuildinfo
 package-lock.json
+
+# Prisma generated client
+lib/generated/
+
+# Local dev server logs
+dev.log
+dev.log.err
+
+# pnpm workspace state file (auto-generated)
+pnpm-workspace.yaml
