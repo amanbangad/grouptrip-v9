@@ -1,8 +1,15 @@
 "use client";
 
-import { useState, useEffect, useActionState } from "react";
+import { useState, useEffect, useActionState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { getTrips, createTrip, deleteTrip, verifyPassword } from "./actions";
+import {
+  getTrips,
+  createTrip,
+  deleteTrip,
+  verifyPassword,
+  checkAuth,
+  logout,
+} from "./actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -26,6 +33,7 @@ import {
   Lock,
   ArrowRight,
   Plane,
+  LogOut,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -54,32 +62,50 @@ export default function Home() {
     null as boolean | null
   );
 
-  useEffect(() => {
-    const stored = localStorage.getItem("grouptrip_auth");
-    if (stored === "true") {
-      setAuthenticated(true);
-      loadTrips();
-    } else {
+  const loadTrips = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await getTrips();
+      setTrips(data as Trip[]);
+    } catch {
+      setAuthenticated(false);
+    } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const ok = await checkAuth();
+      if (cancelled) return;
+      if (ok) {
+        setAuthenticated(true);
+        await loadTrips();
+      } else {
+        setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [loadTrips]);
+
+  useEffect(() => {
     if (loginState === true) {
-      localStorage.setItem("grouptrip_auth", "true");
       setAuthenticated(true);
       loadTrips();
       toast.success("Welcome back!");
     } else if (loginState === false) {
       toast.error("Wrong password. Try again.");
     }
-  }, [loginState]);
+  }, [loginState, loadTrips]);
 
-  async function loadTrips() {
-    setLoading(true);
-    const data = await getTrips();
-    setTrips(data as Trip[]);
-    setLoading(false);
+  async function handleLogout() {
+    await logout();
+    setAuthenticated(false);
+    setTrips([]);
+    toast.success("Signed out");
   }
 
   async function handleCreateTrip(formData: FormData) {
@@ -175,6 +201,17 @@ export default function Home() {
             </div>
           </div>
 
+          <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={handleLogout}
+            className="gap-2"
+            aria-label="Sign out"
+          >
+            <LogOut className="w-4 h-4" />
+            <span className="hidden sm:inline">Sign out</span>
+          </Button>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
               <Button size="sm" className="gap-2">
@@ -247,6 +284,7 @@ export default function Home() {
               </form>
             </DialogContent>
           </Dialog>
+          </div>
         </div>
       </header>
 

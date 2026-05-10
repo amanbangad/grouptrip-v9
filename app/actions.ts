@@ -2,14 +2,68 @@
 
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
+import { z } from "zod";
+import {
+  createSession,
+  destroySession,
+  isAuthenticated,
+  requireAuth,
+  verifyPasswordMatch,
+} from "@/lib/auth";
+
+const dateStringSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD")
+  .refine((s) => !Number.isNaN(new Date(s + "T00:00:00Z").getTime()), {
+    message: "Invalid calendar date",
+  });
+
+const createTripSchema = z
+  .object({
+    name: z.string().trim().min(1, "Name is required").max(120),
+    description: z.string().trim().max(2000).optional().nullable(),
+    startDate: dateStringSchema,
+    endDate: dateStringSchema,
+  })
+  .refine((d) => d.endDate >= d.startDate, {
+    message: "End date must be on or after start date",
+    path: ["endDate"],
+  });
+
+const saveAvailabilitySchema = z.object({
+  tripId: z.string().uuid(),
+  participantName: z.string().trim().min(1).max(80),
+  date: dateStringSchema,
+  slots: z.array(z.number().int().min(0).max(23)).max(24),
+});
+
+const addCommentSchema = z.object({
+  tripId: z.string().uuid(),
+  author: z.string().trim().min(1).max(80),
+  content: z.string().trim().min(1).max(5000),
+  parentId: z.string().uuid().nullable().optional(),
+});
 
 export async function verifyPassword(_prevState: unknown, formData: FormData) {
-  const password = formData.get("password") as string;
-  const appPassword = process.env.APP_PASSWORD || "friends123";
-  return password === appPassword;
+  const password = (formData.get("password") as string) ?? "";
+  if (!verifyPasswordMatch(password)) {
+    return false;
+  }
+  await createSession();
+  return true;
+}
+
+export async function logout(): Promise<void> {
+  await destroySession();
+  revalidatePath("/");
+}
+
+export async function checkAuth(): Promise<boolean> {
+  return isAuthenticated();
 }
 
 export async function getTrips() {
+  await requireAuth();
   return prisma.trip.findMany({
     orderBy: { createdAt: "desc" },
     include: {
@@ -24,21 +78,20 @@ export async function getTrips() {
 }
 
 export async function createTrip(formData: FormData) {
-  const name = formData.get("name") as string;
-  const description = formData.get("description") as string;
-  const startDate = formData.get("startDate") as string;
-  const endDate = formData.get("endDate") as string;
-
-  if (!name || !startDate || !endDate) {
-    throw new Error("Missing required fields");
-  }
+  await requireAuth();
+  const parsed = createTripSchema.parse({
+    name: formData.get("name"),
+    description: formData.get("description") || null,
+    startDate: formData.get("startDate"),
+    endDate: formData.get("endDate"),
+  });
 
   const trip = await prisma.trip.create({
     data: {
-      name,
-      description,
-      startDate,
-      endDate,
+      name: parsed.name,
+      description: parsed.description ?? null,
+      startDate: parsed.startDate,
+      endDate: parsed.endDate,
     },
   });
 
@@ -47,8 +100,10 @@ export async function createTrip(formData: FormData) {
 }
 
 export async function getTrip(id: string) {
-  const trip = await prisma.trip.findUnique({
-    where: { id },
+  await requireAuth();
+  const parsedId = z.string().uuid().parse(id);
+  return prisma.trip.findUnique({
+    where: { id: parsedId },
     include: {
       participants: {
         include: {
@@ -66,8 +121,6 @@ export async function getTrip(id: string) {
       },
     },
   });
-
-  return trip;
 }
 
 export async function saveAvailability(
@@ -76,43 +129,39 @@ export async function saveAvailability(
   date: string,
   slots: number[]
 ) {
-  let participant = await prisma.participant.findUnique({
-    where: {
-      tripId_name: {
-        tripId,
-        name: participantName,
-      },
-    },
+  await requireAuth();
+  const input = saveAvailabilitySchema.parse({
+    tripId,
+    participantName,
+    date,
+    slots,
   });
 
-  if (!participant) {
-    participant = await prisma.participant.create({
-      data: {
-        name: participantName,
-        tripId,
-      },
-    });
-  }
+  const participant = await prisma.participant.upsert({
+    where: {
+      tripId_name: { tripId: input.tripId, name: input.participantName },
+    },
+    create: { tripId: input.tripId, name: input.participantName },
+    update: {},
+  });
 
   await prisma.availability.upsert({
     where: {
       participantId_date: {
         participantId: participant.id,
-        date,
+        date: input.date,
       },
     },
     create: {
       participantId: participant.id,
-      tripId,
-      date,
-      slots,
+      tripId: input.tripId,
+      date: input.date,
+      slots: input.slots,
     },
-    update: {
-      slots,
-    },
+    update: { slots: input.slots },
   });
 
-  revalidatePath(`/trip/${tripId}`);
+  revalidatePath(`/trip/${input.tripId}`);
 }
 
 export async function addComment(
@@ -121,20 +170,30 @@ export async function addComment(
   content: string,
   parentId?: string | null
 ) {
+  await requireAuth();
+  const input = addCommentSchema.parse({
+    tripId,
+    author,
+    content,
+    parentId: parentId ?? null,
+  });
+
   const comment = await prisma.comment.create({
     data: {
-      tripId,
-      author,
-      content,
-      parentId: parentId || null,
+      tripId: input.tripId,
+      author: input.author,
+      content: input.content,
+      parentId: input.parentId ?? null,
     },
   });
 
-  revalidatePath(`/trip/${tripId}`);
+  revalidatePath(`/trip/${input.tripId}`);
   return comment;
 }
 
 export async function deleteTrip(id: string) {
-  await prisma.trip.delete({ where: { id } });
+  await requireAuth();
+  const parsedId = z.string().uuid().parse(id);
+  await prisma.trip.delete({ where: { id: parsedId } });
   revalidatePath("/");
 }

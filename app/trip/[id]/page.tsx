@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, Fragment } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { getTrip, saveAvailability, addComment } from "@/app/actions";
 import { Button } from "@/components/ui/button";
@@ -396,7 +396,7 @@ export default function TripPage() {
 
                     {/* Time Slots */}
                     {TIME_SLOTS.filter((s) => s >= 6 && s <= 23).map((slot) => (
-                      <>
+                      <Fragment key={`row-${slot}`}>
                         <div
                           key={`label-${slot}`}
                           className="sticky left-0 bg-card z-10 text-xs text-muted-foreground p-2 flex items-center"
@@ -437,7 +437,7 @@ export default function TripPage() {
                             </button>
                           );
                         })}
-                      </>
+                      </Fragment>
                     ))}
                   </div>
                 </div>
